@@ -1,0 +1,6 @@
+{
+  "name": "AAI Desk — Project Tracker",
+  "description": "A simple, focused task and project workspace designed for Junior Executives at the Airports Authority of India.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

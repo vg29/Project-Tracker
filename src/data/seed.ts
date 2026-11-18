@@ -1,0 +1,140 @@
+import { ExecutiveProfile, Project, Task } from '../types';
+
+export const DESIGNATION_OPTIONS = [
+  'Junior Executive(IT)',
+  'Assistant Manager(IT)',
+  'Manager(IT)',
+] as const;
+
+export const DEFAULT_DESIGNATION = DESIGNATION_OPTIONS[1];
+
+export const DEFAULT_PROFILE: ExecutiveProfile = {
+  name: 'Raghav Verma',
+  designation: DEFAULT_DESIGNATION,
+  station: 'VIDP · Terminal 3',
+  employeeId: 'AAI-IT-4182',
+};
+
+export const DEFAULT_PROJECTS: Project[] = [
+  {
+    id: 'proj-runway',
+    name: 'Runway & Apron Lighting Inspection',
+    code: 'OPS-RWY-12',
+    division: 'Airside Operations',
+    createdAt: '2026-10-14',
+  },
+  {
+    id: 'proj-dgca',
+    name: 'DGCA Quarterly Safety Audit',
+    code: 'SAF-DGCA-04',
+    division: 'Safety & Compliance',
+    createdAt: '2026-10-20',
+  },
+  {
+    id: 'proj-baggage',
+    name: 'Baggage Handling System Check',
+    code: 'TRM-BHS-09',
+    division: 'Terminal Management',
+    createdAt: '2026-11-01',
+  },
+  {
+    id: 'proj-signage',
+    name: 'Passenger Wayfinding Signage Refresh',
+    code: 'TRM-WAY-03',
+    division: 'Passenger Facilitation',
+    createdAt: '2026-11-05',
+  },
+];
+
+export const DEFAULT_TASKS: Task[] = [
+  {
+    id: 'task-1',
+    title: 'Submit weekly runway friction & rubber deposit log',
+    projectId: 'proj-runway',
+    status: 'in_progress',
+    priority: 'urgent',
+    dueDate: '2026-11-17',
+    refNo: 'AAI/OPS/26/114',
+    notes: 'Verify Mu-meter calibration sheet with Airside Shift Supervisor before uploading to station folder.',
+    createdAt: '2026-11-12',
+  },
+  {
+    id: 'task-2',
+    title: 'Compile apron floodlight outage register for Electrical wing',
+    projectId: 'proj-runway',
+    status: 'todo',
+    priority: 'priority',
+    dueDate: '2026-11-19',
+    refNo: 'AAI/OPS/26/118',
+    notes: 'Bay 14 and Bay 22 masts flagged during night inspection.',
+    createdAt: '2026-11-14',
+  },
+  {
+    id: 'task-3',
+    title: 'Cross-check fire extinguisher pressure tags across Pier B',
+    projectId: 'proj-dgca',
+    status: 'in_progress',
+    priority: 'priority',
+    dueDate: '2026-11-18',
+    refNo: 'AAI/SAF/26/042',
+    notes: 'Coordinate with AAI Fire Service duty officer for final sign-off.',
+    createdAt: '2026-11-10',
+  },
+  {
+    id: 'task-4',
+    title: 'Prepare DGCA compliance annexure for wildlife hazard log',
+    projectId: 'proj-dgca',
+    status: 'todo',
+    priority: 'routine',
+    dueDate: '2026-11-23',
+    refNo: 'AAI/SAF/26/049',
+    notes: 'Include October bird-strike prevention patrol summary.',
+    createdAt: '2026-11-15',
+  },
+  {
+    id: 'task-5',
+    title: 'Follow up with AMC vendor on Conveyor Belt 4 sensor calibration',
+    projectId: 'proj-baggage',
+    status: 'todo',
+    priority: 'urgent',
+    dueDate: '2026-11-15',
+    refNo: 'AAI/TRM/26/207',
+    notes: 'Vendor technician scheduled for 06:00 IST maintenance window.',
+    createdAt: '2026-11-11',
+  },
+  {
+    id: 'task-6',
+    title: 'Walkthrough arrival belt signage visibility near Gate 7',
+    projectId: 'proj-signage',
+    status: 'todo',
+    priority: 'routine',
+    dueDate: '2026-11-25',
+    refNo: 'AAI/TRM/26/212',
+    notes: 'Check bilingual Hindi/English lettering alignment after backlighting replacement.',
+    createdAt: '2026-11-16',
+  },
+  {
+    id: 'task-7',
+    title: 'File monthly bird-scaring cartridge inventory sheet',
+    projectId: 'proj-dgca',
+    status: 'done',
+    priority: 'routine',
+    dueDate: '2026-11-10',
+    refNo: 'AAI/SAF/26/031',
+    notes: 'Signed and archived in Station Director binder.',
+    createdAt: '2026-11-04',
+    completedAt: '2026-11-09',
+  },
+  {
+    id: 'task-8',
+    title: 'Verify emergency exit illumination backup battery test',
+    projectId: 'proj-baggage',
+    status: 'done',
+    priority: 'priority',
+    dueDate: '2026-11-12',
+    refNo: 'AAI/TRM/26/194',
+    notes: '90-minute load test passed across Domestic Arrivals.',
+    createdAt: '2026-11-06',
+    completedAt: '2026-11-12',
+  },
+];

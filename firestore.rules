@@ -1,0 +1,310 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'ownerId',
+        'name',
+        'designation',
+        'station',
+        'employeeId',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId',
+        'name',
+        'designation',
+        'station',
+        'employeeId',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.ownerId is string &&
+      data.ownerId == userId &&
+      data.ownerId == request.auth.uid &&
+      data.name is string &&
+      data.name.size() >= 1 &&
+      data.name.size() <= 120 &&
+      data.designation is string &&
+      data.designation == 'Assistant Manager (IT)' &&
+      data.station is string &&
+      data.station.size() >= 1 &&
+      data.station.size() <= 120 &&
+      data.employeeId is string &&
+      data.employeeId.size() <= 64 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidProject(data, userId) {
+      return data.keys().hasAll([
+        'ownerId',
+        'name',
+        'code',
+        'division',
+        'createdDate',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId',
+        'name',
+        'code',
+        'division',
+        'createdDate',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.ownerId is string &&
+      data.ownerId == userId &&
+      data.ownerId == request.auth.uid &&
+      data.name is string &&
+      data.name.size() >= 1 &&
+      data.name.size() <= 160 &&
+      data.code is string &&
+      data.code.size() <= 64 &&
+      data.division is string &&
+      data.division in [
+        'Application',
+        'Data Center',
+        'SOC',
+        'IT AMC',
+        'Airside Operations',
+        'Safety & Compliance',
+        'Terminal Management',
+        'Passenger Facilitation'
+      ] &&
+      data.createdDate is string &&
+      data.createdDate.size() <= 20 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidProjectDocument(data, userId, projectId) {
+      return data.keys().hasAll([
+        'ownerId',
+        'projectId',
+        'slotKey',
+        'label',
+        'fileName',
+        'fileType',
+        'fileSize',
+        'dataUrl',
+        'uploadedAt',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId',
+        'projectId',
+        'slotKey',
+        'label',
+        'fileName',
+        'fileType',
+        'fileSize',
+        'dataUrl',
+        'uploadedAt',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.ownerId is string &&
+      data.ownerId == userId &&
+      data.ownerId == request.auth.uid &&
+      data.projectId is string &&
+      data.projectId == projectId &&
+      data.slotKey is string &&
+      data.slotKey in ['rfp', 'eOfficeFile', 'agreement', 'purchaseOrder', 'bg', 'ip', 'bills', 'custom'] &&
+      data.label is string &&
+      data.label.size() >= 1 &&
+      data.label.size() <= 160 &&
+      data.fileName is string &&
+      data.fileName.size() >= 1 &&
+      data.fileName.size() <= 240 &&
+      data.fileType is string &&
+      data.fileType.size() <= 160 &&
+      data.fileSize is int &&
+      data.fileSize > 0 &&
+      data.fileSize <= 524288 &&
+      data.dataUrl is string &&
+      data.dataUrl.size() >= 1 &&
+      data.dataUrl.size() <= 750000 &&
+      data.uploadedAt is string &&
+      data.uploadedAt.size() <= 20 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data, userId) {
+      return data.keys().hasAll([
+        'ownerId',
+        'title',
+        'projectId',
+        'status',
+        'priority',
+        'dueDate',
+        'refNo',
+        'notes',
+        'createdDate',
+        'archived',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerId',
+        'title',
+        'projectId',
+        'status',
+        'priority',
+        'dueDate',
+        'refNo',
+        'notes',
+        'createdDate',
+        'completedAt',
+        'archived',
+        'archivedAt',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.ownerId is string &&
+      data.ownerId == userId &&
+      data.ownerId == request.auth.uid &&
+      data.title is string &&
+      data.title.size() >= 1 &&
+      data.title.size() <= 240 &&
+      data.projectId is string &&
+      data.projectId.size() <= 128 &&
+      data.status is string &&
+      data.status in ['todo', 'in_progress', 'done'] &&
+      data.priority is string &&
+      data.priority in ['routine', 'priority', 'urgent'] &&
+      data.dueDate is string &&
+      data.dueDate.size() <= 20 &&
+      data.refNo is string &&
+      data.refNo.size() <= 80 &&
+      data.notes is string &&
+      data.notes.size() <= 2000 &&
+      data.createdDate is string &&
+      data.createdDate.size() <= 20 &&
+      data.archived is bool &&
+      (!('completedAt' in data) || (data.completedAt is string && data.completedAt.size() <= 20)) &&
+      (!('archivedAt' in data) || (data.archivedAt is string && data.archivedAt.size() <= 20)) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    match /users/{userId}/profile/info {
+      allow get: if isValidId(userId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'station', 'employeeId', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/projects/{projectId} {
+      allow get: if isValidId(userId) && isValidId(projectId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidId(projectId) &&
+        isValidProject(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidId(projectId) &&
+        isValidProject(incoming(), userId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().createdDate == existing().createdDate &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'division', 'updatedAt']);
+      allow delete: if isValidId(userId) && isValidId(projectId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+
+      match /documents/{docId} {
+        allow get: if isValidId(userId) && isValidId(projectId) && isValidId(docId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+        allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(projectId) &&
+          isValidId(docId) &&
+          isValidProjectDocument(incoming(), userId, projectId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId)/projects/$(projectId));
+        allow update: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(projectId) &&
+          isValidId(docId) &&
+          isValidProjectDocument(incoming(), userId, projectId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().projectId == existing().projectId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['slotKey', 'label', 'fileName', 'fileType', 'fileSize', 'dataUrl', 'uploadedAt', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(projectId) && isValidId(docId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+      }
+    }
+
+    match /users/{userId}/tasks/{taskId} {
+      allow get: if isValidId(userId) && isValidId(taskId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+      allow list: if isOwner(userId) && resource.data.ownerId == request.auth.uid;
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidId(taskId) &&
+        isValidTask(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().projectId == '' || (isValidId(incoming().projectId) && exists(/databases/$(database)/documents/users/$(userId)/projects/$(incoming().projectId))));
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidId(taskId) &&
+        isValidTask(incoming(), userId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().createdDate == existing().createdDate &&
+        incoming().updatedAt == request.time &&
+        (incoming().projectId == '' || incoming().projectId == existing().projectId || (isValidId(incoming().projectId) && exists(/databases/$(database)/documents/users/$(userId)/projects/$(incoming().projectId)))) &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'archivedAt', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'projectId', 'status', 'priority', 'dueDate', 'refNo', 'notes', 'completedAt', 'updatedAt'])
+        );
+      allow delete: if isValidId(userId) && isValidId(taskId) && isOwner(userId) && existing().ownerId == request.auth.uid;
+    }
+  }
+}

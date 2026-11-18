@@ -1,0 +1,220 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private executive profile details for an authenticated AAI Assistant Manager (IT).",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "designation": {
+          "type": "string",
+          "enum": ["Assistant Manager (IT)"]
+        },
+        "station": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "employeeId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "name", "designation", "station", "employeeId", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A station IT project tracked by the executive.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "division": {
+          "type": "string",
+          "enum": ["Application", "Data Center", "SOC", "IT AMC", "Airside Operations", "Safety & Compliance", "Terminal Management", "Passenger Facilitation"]
+        },
+        "createdDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "name", "code", "division", "createdDate", "createdAt", "updatedAt"]
+    },
+    "ProjectDocument": {
+      "title": "ProjectDocument",
+      "description": "Uploaded project document (RFP, eOffice File, Agreement, PO, BG, IP, Bills, or additional document).",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "projectId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "slotKey": {
+          "type": "string",
+          "enum": ["rfp", "eOfficeFile", "agreement", "purchaseOrder", "bg", "ip", "bills", "custom"]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "fileType": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "fileSize": {
+          "type": "integer"
+        },
+        "dataUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 750000
+        },
+        "uploadedAt": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "projectId", "slotKey", "label", "fileName", "fileType", "fileSize", "dataUrl", "uploadedAt", "createdAt", "updatedAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Action item tracked by the executive, optionally linked to a project.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "projectId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["todo", "in_progress", "done"]
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["routine", "priority", "urgent"]
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "refNo": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "createdDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "completedAt": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "archivedAt": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["ownerId", "title", "projectId", "status", "priority", "dueDate", "refNo", "notes", "createdDate", "archived", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/profile/info": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private executive profile document scoped to the owning user."
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/Project" },
+      "description": "Station projects owned by the authenticated executive."
+    },
+    "/users/{userId}/projects/{projectId}/documents/{docId}": {
+      "schema": { "$ref": "#/entities/ProjectDocument" },
+      "description": "Uploaded project documents belonging to a parent project."
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Tasks owned by the authenticated executive."
+    }
+  }
+}
