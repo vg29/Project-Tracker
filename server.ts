@@ -241,12 +241,46 @@ interface AuthedRequest extends Request {
   authToken?: string;
 }
 
+function cleanSecret(value?: string): string {
+  if (!value) return '';
+  let trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function cleanBearerToken(value?: string): string {
+  const cleaned = cleanSecret(value);
+  return cleaned.replace(/^bearer\s+/i, '').trim();
+}
+
+function extractCloudflareAccountId(raw: string): string {
+  const cleaned = cleanSecret(raw);
+  if (!cleaned) return '';
+  if (/^[0-9a-f]{32}$/i.test(cleaned)) {
+    return cleaned.toLowerCase();
+  }
+  const match = cleaned.match(/([0-9a-f]{32})/i);
+  return match ? match[1].toLowerCase() : cleaned;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
 function getR2Config(): R2Config | null {
-  const accountId = process.env.R2_ACCOUNT_ID?.trim() ?? '';
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID?.trim() ?? '';
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY?.trim() ?? '';
-  const bucket = process.env.R2_BUCKET_NAME?.trim() ?? '';
-  const customEndpoint = process.env.R2_ENDPOINT?.trim() ?? '';
+  const rawAccountId = cleanSecret(process.env.R2_ACCOUNT_ID);
+  const accountId = extractCloudflareAccountId(rawAccountId);
+  const accessKeyId = cleanSecret(process.env.R2_ACCESS_KEY_ID);
+  const secretAccessKey = cleanSecret(process.env.R2_SECRET_ACCESS_KEY);
+  const bucket = cleanSecret(process.env.R2_BUCKET_NAME);
+  const customEndpoint = cleanSecret(process.env.R2_ENDPOINT);
 
   const endpoint =
     customEndpoint ||
@@ -269,17 +303,18 @@ function getR2Config(): R2Config | null {
 }
 
 function getD1Config(): D1Config | null {
-  const accountId =
-    process.env.D1_ACCOUNT_ID?.trim() ||
-    process.env.R2_ACCOUNT_ID?.trim() ||
-    '';
-  const databaseId = process.env.D1_DATABASE_ID?.trim() ?? '';
+  const rawAccountId =
+    cleanSecret(process.env.D1_ACCOUNT_ID) ||
+    cleanSecret(process.env.CLOUDFLARE_ACCOUNT_ID) ||
+    cleanSecret(process.env.R2_ACCOUNT_ID) ||
+    cleanSecret(process.env.R2_ENDPOINT);
+  const accountId = extractCloudflareAccountId(rawAccountId);
+  const databaseId = cleanSecret(process.env.D1_DATABASE_ID);
   const apiToken =
-    process.env.D1_API_TOKEN?.trim() ||
-    process.env.CLOUDFLARE_API_TOKEN?.trim() ||
-    '';
+    cleanBearerToken(process.env.D1_API_TOKEN) ||
+    cleanBearerToken(process.env.CLOUDFLARE_API_TOKEN);
 
-  if (!accountId || !databaseId || !apiToken) {
+  if (!databaseId || !apiToken) {
     return null;
   }
 
@@ -287,9 +322,10 @@ function getD1Config(): D1Config | null {
 }
 
 class D1NotConfiguredError extends Error {
-  constructor() {
+  constructor(message?: string) {
     super(
-      'Cloudflare D1 database is not configured. Set D1_ACCOUNT_ID (or R2_ACCOUNT_ID), D1_DATABASE_ID, and D1_API_TOKEN in environment secrets.'
+      message ||
+        'Cloudflare D1 database is not configured. Set D1_ACCOUNT_ID (or R2_ACCOUNT_ID), D1_DATABASE_ID, and D1_API_TOKEN in environment secrets.'
     );
     this.name = 'D1NotConfiguredError';
   }
@@ -311,23 +347,149 @@ interface D1RestResponse<T> {
   }[];
 }
 
-async function d1Query<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = []
-): Promise<T[]> {
-  const cfg = getD1Config();
-  if (!cfg) {
-    throw new D1NotConfiguredError();
+let cachedResolvedD1: {
+  sourceKey: string;
+  accountId: string;
+  databaseId: string;
+} | null = null;
+
+async function resolveD1Target(cfg: D1Config): Promise<{
+  accountId: string;
+  databaseId: string;
+}> {
+  const sourceKey = `${cfg.accountId}|${cfg.databaseId}|${cfg.apiToken.slice(-6)}`;
+  if (cachedResolvedD1 && cachedResolvedD1.sourceKey === sourceKey) {
+    return {
+      accountId: cachedResolvedD1.accountId,
+      databaseId: cachedResolvedD1.databaseId,
+    };
   }
 
+  let accountId = cfg.accountId;
+  let databaseId = cfg.databaseId;
+
+  // If accountId is missing/non-hex, try discovering authorized account via token
+  if (!/^[0-9a-f]{32}$/i.test(accountId)) {
+    const accountsRes = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts',
+      {
+        headers: {
+          Authorization: `Bearer ${cfg.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const accountsPayload = (await accountsRes.json().catch(() => null)) as {
+      success?: boolean;
+      result?: { id: string; name: string }[];
+    } | null;
+    const accounts = accountsPayload?.result ?? [];
+    if (accountsPayload?.success && accounts.length > 0) {
+      accountId = accounts[0].id;
+    }
+  }
+
+  if (!accountId) {
+    throw new D1NotConfiguredError(
+      'Cloudflare Account ID is missing. Set D1_ACCOUNT_ID to your 32-character Cloudflare Account ID.'
+    );
+  }
+
+  // If D1_DATABASE_ID is a database name instead of a UUID, look up its UUID
+  if (!isUuid(databaseId)) {
+    const listRes = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+        accountId
+      )}/d1/database?name=${encodeURIComponent(databaseId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${cfg.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const listPayload = (await listRes.json().catch(() => null)) as {
+      success?: boolean;
+      result?: { uuid: string; name: string }[];
+    } | null;
+    const matched = listPayload?.result?.find(
+      (db) => db.name === databaseId || db.uuid === databaseId
+    );
+    if (matched?.uuid) {
+      databaseId = matched.uuid;
+    }
+  }
+
+  cachedResolvedD1 = { sourceKey, accountId, databaseId };
+  return { accountId, databaseId };
+}
+
+async function discoverAuthorizedAccountForD1(
+  cfg: D1Config
+): Promise<string | null> {
+  try {
+    const accountsRes = await fetch(
+      'https://api.cloudflare.com/client/v4/accounts',
+      {
+        headers: {
+          Authorization: `Bearer ${cfg.apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const accountsPayload = (await accountsRes.json().catch(() => null)) as {
+      success?: boolean;
+      result?: { id: string; name: string }[];
+    } | null;
+    if (!accountsPayload?.success || !accountsPayload.result?.length) {
+      return null;
+    }
+    for (const acc of accountsPayload.result) {
+      const dbCheck = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+          acc.id
+        )}/d1/database`,
+        {
+          headers: {
+            Authorization: `Bearer ${cfg.apiToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      const dbPayload = (await dbCheck.json().catch(() => null)) as {
+        success?: boolean;
+        result?: { uuid: string; name: string }[];
+      } | null;
+      if (dbPayload?.success && dbPayload.result) {
+        const match = dbPayload.result.find(
+          (db) => db.uuid === cfg.databaseId || db.name === cfg.databaseId
+        );
+        if (match) {
+          return acc.id;
+        }
+      }
+    }
+    return accountsPayload.result[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function executeD1HttpQuery<T>(
+  accountId: string,
+  databaseId: string,
+  apiToken: string,
+  sql: string,
+  params: unknown[]
+): Promise<{ ok: boolean; status: number; payload: D1RestResponse<T> | null }> {
   const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
-    cfg.accountId
-  )}/d1/database/${encodeURIComponent(cfg.databaseId)}/query`;
+    accountId
+  )}/d1/database/${encodeURIComponent(databaseId)}/query`;
 
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${cfg.apiToken}`,
+      Authorization: `Bearer ${apiToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -340,10 +502,74 @@ async function d1Query<T = Record<string, unknown>>(
     | D1RestResponse<T>
     | null;
 
-  if (!response.ok || !payload || !payload.success) {
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function d1Query<T = Record<string, unknown>>(
+  sql: string,
+  params: unknown[] = []
+): Promise<T[]> {
+  const cfg = getD1Config();
+  if (!cfg) {
+    throw new D1NotConfiguredError();
+  }
+
+  let { accountId, databaseId } = await resolveD1Target(cfg);
+  let { ok, status, payload } = await executeD1HttpQuery<T>(
+    accountId,
+    databaseId,
+    cfg.apiToken,
+    sql,
+    params
+  );
+
+  // If Cloudflare reports account unauthorized/invalid, try discovering the right account via token
+  const rawErrMsg = payload?.errors?.[0]?.message ?? '';
+  const isAccountAuthError =
+    status === 401 ||
+    status === 403 ||
+    /not valid or is not authorized/i.test(rawErrMsg) ||
+    /authentication error/i.test(rawErrMsg);
+
+  if ((!ok || !payload?.success) && isAccountAuthError) {
+    const discoveredAccountId = await discoverAuthorizedAccountForD1(cfg);
+    if (discoveredAccountId && discoveredAccountId !== accountId) {
+      accountId = discoveredAccountId;
+      cachedResolvedD1 = {
+        sourceKey: `${cfg.accountId}|${cfg.databaseId}|${cfg.apiToken.slice(-6)}`,
+        accountId,
+        databaseId: isUuid(databaseId) ? databaseId : cfg.databaseId,
+      };
+      if (!isUuid(databaseId)) {
+        cachedResolvedD1 = null;
+        const resolved = await resolveD1Target({ ...cfg, accountId });
+        databaseId = resolved.databaseId;
+      }
+      ({ ok, status, payload } = await executeD1HttpQuery<T>(
+        accountId,
+        databaseId,
+        cfg.apiToken,
+        sql,
+        params
+      ));
+    }
+  }
+
+  if (!ok || !payload || !payload.success) {
     const errMsg =
       payload?.errors?.[0]?.message ||
-      `Cloudflare D1 query failed with status ${response.status}.`;
+      `Cloudflare D1 query failed with status ${status}.`;
+    if (
+      status === 401 ||
+      status === 403 ||
+      /not valid or is not authorized/i.test(errMsg) ||
+      /authentication error/i.test(errMsg)
+    ) {
+      cachedResolvedD1 = null;
+      throw new D1NotConfiguredError(
+        `Cloudflare D1 authorization failed (${errMsg}). Verify D1_ACCOUNT_ID is your 32-character Cloudflare Account ID and D1_API_TOKEN is a Cloudflare API Token with Account > D1 > Edit permission.`
+      );
+    }
     throw new Error(errMsg);
   }
 

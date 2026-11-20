@@ -8,10 +8,11 @@ import {
 } from '../services/d1Api';
 
 interface LoginPageProps {
+  initialError?: string;
   onAuthenticated: (user: D1UserRecord) => void;
 }
 
-export function LoginPage({ onAuthenticated }: LoginPageProps) {
+export function LoginPage({ initialError = '', onAuthenticated }: LoginPageProps) {
   const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +25,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
   const [employeeId, setEmployeeId] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState(initialError);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

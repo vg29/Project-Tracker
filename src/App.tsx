@@ -118,7 +118,16 @@ export default function App() {
     setWorkspaceReady(false);
     setWorkspaceError('');
     setUser(authenticatedUser);
-    await refreshWorkspace();
+    try {
+      await refreshWorkspace();
+    } catch (err) {
+      setWorkspaceError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to load workspace from Cloudflare D1.'
+      );
+      setWorkspaceReady(true);
+    }
   };
 
   const projectsById = useMemo(() => {
@@ -385,6 +394,7 @@ export default function App() {
   if (!user) {
     return (
       <LoginPage
+        initialError={workspaceError}
         onAuthenticated={(loggedInUser) => {
           void handleAuthenticated(loggedInUser);
         }}
