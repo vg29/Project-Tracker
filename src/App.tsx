@@ -9,27 +9,27 @@ import {
 } from 'lucide-react';
 import { DEFAULT_PROFILE } from './data/seed';
 import {
-  addLocalCustomDoc,
+  addD1CustomDoc,
   CoreDocSlotKey,
-  createLocalProject,
-  createLocalTask,
-  deleteLocalProject,
-  deleteLocalTask,
+  createD1Project,
+  createD1Task,
+  D1UserRecord,
+  deleteD1Project,
+  deleteD1Task,
   getCurrentSessionUser,
-  loadUserWorkspace,
-  LocalUserRecord,
-  logoutLocalUser,
-  removeLocalCoreDoc,
-  removeLocalDocById,
-  resetLocalWorkspace,
-  saveLocalUserProfile,
-  toggleLocalTaskArchive,
-  updateLocalProject,
-  updateLocalTask,
-  updateLocalTaskDueDate,
-  updateLocalTaskStatus,
-  upsertLocalCoreDoc,
-} from './services/localDb';
+  loadD1Workspace,
+  logoutD1User,
+  removeD1CoreDoc,
+  removeD1DocById,
+  resetD1Workspace,
+  saveD1UserProfile,
+  toggleD1TaskArchive,
+  updateD1Project,
+  updateD1Task,
+  updateD1TaskDueDate,
+  updateD1TaskStatus,
+  upsertD1CoreDoc,
+} from './services/d1Api';
 import { uploadFileToR2 } from './services/r2Storage';
 import {
   ExecutiveProfile,
@@ -54,9 +54,10 @@ import { ProjectDocuments } from './components/ProjectDocuments';
 import { ExtendDueDateModal } from './components/ExtendDueDateModal';
 
 export default function App() {
-  const [user, setUser] = useState<LocalUserRecord | null>(null);
+  const [user, setUser] = useState<D1UserRecord | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState('');
 
   const [profile, setProfile] = useState<ExecutiveProfile>(DEFAULT_PROFILE);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -79,12 +80,13 @@ export default function App() {
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  const refreshWorkspace = useCallback(async (userId: string) => {
-    const data = await loadUserWorkspace(userId);
+  const refreshWorkspace = useCallback(async () => {
+    const data = await loadD1Workspace();
     setProfile(data.profile);
     setProjects(data.projects);
     setTasks(data.tasks);
     setWorkspaceReady(true);
+    setWorkspaceError('');
   }, []);
 
   useEffect(() => {
@@ -95,8 +97,14 @@ export default function App() {
         if (!active) return;
         setUser(sessionUser);
         if (sessionUser) {
-          await refreshWorkspace(sessionUser.id);
+          await refreshWorkspace();
         }
+      } catch (err) {
+        if (!active) return;
+        setUser(null);
+        setWorkspaceError(
+          err instanceof Error ? err.message : 'Unable to connect to Cloudflare D1.'
+        );
       } finally {
         if (active) setAuthReady(true);
       }
@@ -106,10 +114,11 @@ export default function App() {
     };
   }, [refreshWorkspace]);
 
-  const handleAuthenticated = async (authenticatedUser: LocalUserRecord) => {
+  const handleAuthenticated = async (authenticatedUser: D1UserRecord) => {
     setWorkspaceReady(false);
+    setWorkspaceError('');
     setUser(authenticatedUser);
-    await refreshWorkspace(authenticatedUser.id);
+    await refreshWorkspace();
   };
 
   const projectsById = useMemo(() => {
@@ -205,23 +214,31 @@ export default function App() {
     }
   };
 
+  const runWorkspaceMutation = (action: () => Promise<void>) => {
+    void (async () => {
+      try {
+        setWorkspaceError('');
+        await action();
+        await refreshWorkspace();
+      } catch (err) {
+        setWorkspaceError(
+          err instanceof Error ? err.message : 'Unable to save changes to Cloudflare D1.'
+        );
+      }
+    })();
+  };
+
   const handleToggleDone = (taskId: string) => {
     if (!user) return;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     const nextStatus: TaskStatus = task.status === 'done' ? 'todo' : 'done';
-    void (async () => {
-      await updateLocalTaskStatus(user.id, taskId, nextStatus);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => updateD1TaskStatus(taskId, nextStatus));
   };
 
   const handleChangeStatus = (taskId: string, status: TaskStatus) => {
     if (!user) return;
-    void (async () => {
-      await updateLocalTaskStatus(user.id, taskId, status);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => updateD1TaskStatus(taskId, status));
   };
 
   const handleSaveTask = (
@@ -229,38 +246,24 @@ export default function App() {
     existingId?: string
   ) => {
     if (!user) return;
-    void (async () => {
-      if (existingId) {
-        await updateLocalTask(user.id, existingId, data);
-      } else {
-        await createLocalTask(user.id, data);
-      }
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() =>
+      existingId ? updateD1Task(existingId, data) : createD1Task(data)
+    );
   };
 
   const handleToggleArchiveTask = (taskId: string) => {
     if (!user) return;
-    void (async () => {
-      await toggleLocalTaskArchive(user.id, taskId);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => toggleD1TaskArchive(taskId));
   };
 
   const handleExtendDueDate = (taskId: string, newDueDate: string) => {
     if (!user) return;
-    void (async () => {
-      await updateLocalTaskDueDate(user.id, taskId, newDueDate);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => updateD1TaskDueDate(taskId, newDueDate));
   };
 
   const handleDeleteTask = (taskId: string) => {
     if (!user) return;
-    void (async () => {
-      await deleteLocalTask(user.id, taskId);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => deleteD1Task(taskId));
   };
 
   const handleSaveProject = (
@@ -268,35 +271,31 @@ export default function App() {
     existingId?: string
   ) => {
     if (!user) return;
-    void (async () => {
-      if (existingId) {
-        await updateLocalProject(user.id, existingId, {
-          name: data.name,
-          code: data.code,
-          division: data.division,
-          purchaseOrder: data.purchaseOrder,
-        });
-      } else {
-        await createLocalProject(user.id, {
-          name: data.name,
-          code: data.code,
-          division: data.division,
-          purchaseOrder: data.purchaseOrder,
-        });
-      }
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() =>
+      existingId
+        ? updateD1Project(existingId, {
+            name: data.name,
+            code: data.code,
+            division: data.division,
+            purchaseOrder: data.purchaseOrder,
+          })
+        : createD1Project({
+            name: data.name,
+            code: data.code,
+            division: data.division,
+            purchaseOrder: data.purchaseOrder,
+          })
+    );
   };
 
   const handleDeleteProject = (projectId: string) => {
     if (!user) return;
-    void (async () => {
-      await deleteLocalProject(user.id, projectId);
+    runWorkspaceMutation(async () => {
+      await deleteD1Project(projectId);
       if (selectedProjectId === projectId) {
         setSelectedProjectId(null);
       }
-      await refreshWorkspace(user.id);
-    })();
+    });
   };
 
   const handleUploadCoreDoc = async (
@@ -311,8 +310,8 @@ export default function App() {
       projectId,
       slotKey,
     });
-    await upsertLocalCoreDoc(user.id, projectId, slotKey, label, uploaded);
-    await refreshWorkspace(user.id);
+    await upsertD1CoreDoc(projectId, slotKey, label, uploaded);
+    await refreshWorkspace();
   };
 
   const handleRemoveCoreDoc = async (
@@ -320,8 +319,8 @@ export default function App() {
     slotKey: CoreDocSlotKey
   ) => {
     if (!user) return;
-    await removeLocalCoreDoc(projectId, slotKey);
-    await refreshWorkspace(user.id);
+    await removeD1CoreDoc(projectId, slotKey);
+    await refreshWorkspace();
   };
 
   const handleAddCustomDoc = async (
@@ -335,41 +334,38 @@ export default function App() {
       projectId,
       slotKey: 'custom',
     });
-    await addLocalCustomDoc(user.id, projectId, label, uploaded);
-    await refreshWorkspace(user.id);
+    await addD1CustomDoc(projectId, label, uploaded);
+    await refreshWorkspace();
   };
 
   const handleRemoveCustomDoc = async (docId: string) => {
     if (!user) return;
-    await removeLocalDocById(docId);
-    await refreshWorkspace(user.id);
+    await removeD1DocById(docId);
+    await refreshWorkspace();
   };
 
   const handleSaveProfile = (nextProfile: ExecutiveProfile) => {
     if (!user) return;
-    void (async () => {
-      await saveLocalUserProfile(user.id, nextProfile);
-      await refreshWorkspace(user.id);
-    })();
+    runWorkspaceMutation(() => saveD1UserProfile(nextProfile));
   };
 
   const handleResetWorkspace = () => {
     if (!user) return;
-    void (async () => {
-      await resetLocalWorkspace(user.id);
+    runWorkspaceMutation(async () => {
+      await resetD1Workspace();
       setActiveView('tasks');
       setSelectedProjectId(null);
       setSearchQuery('');
       setStatusFilter('all');
-      await refreshWorkspace(user.id);
-    })();
+    });
   };
 
   const handleSignOut = () => {
     void (async () => {
-      await logoutLocalUser();
+      await logoutD1User();
       setUser(null);
       setWorkspaceReady(false);
+      setWorkspaceError('');
       setProjects([]);
       setTasks([]);
       setProfile(DEFAULT_PROFILE);
@@ -468,6 +464,22 @@ export default function App() {
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-7 sm:px-8">
+          {workspaceError && (
+            <div
+              role="alert"
+              className="mb-5 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-700"
+            >
+              <span>{workspaceError}</span>
+              <button
+                type="button"
+                onClick={() => setWorkspaceError('')}
+                className="shrink-0 font-semibold hover:underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           <div className="mb-6">
             <h1 className="font-display text-2xl font-bold tracking-tight text-slate-900 text-balance">
               {pageTitle}

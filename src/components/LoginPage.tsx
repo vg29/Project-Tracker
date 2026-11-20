@@ -2,13 +2,13 @@ import { FormEvent, useState } from 'react';
 import { Eye, EyeOff, Lock, Plane } from 'lucide-react';
 import { DEFAULT_DESIGNATION, DESIGNATION_OPTIONS } from '../data/seed';
 import {
-  LocalUserRecord,
-  loginLocalUser,
-  registerLocalUser,
-} from '../services/localDb';
+  D1UserRecord,
+  loginD1User,
+  registerD1User,
+} from '../services/d1Api';
 
 interface LoginPageProps {
-  onAuthenticated: (user: LocalUserRecord) => void;
+  onAuthenticated: (user: D1UserRecord) => void;
 }
 
 export function LoginPage({ onAuthenticated }: LoginPageProps) {
@@ -33,10 +33,10 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
 
     try {
       if (mode === 'signin') {
-        const user = await loginLocalUser(identifier, password);
+        const user = await loginD1User(identifier, password);
         onAuthenticated(user);
       } else {
-        const user = await registerLocalUser({
+        const user = await registerD1User({
           name: fullName,
           designation,
           email,
@@ -318,7 +318,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
       </main>
 
       <footer className="mx-auto w-full max-w-md pb-2 text-xs text-slate-400">
-        AAI Desk — Project Tracker · Stored locally in your browser database
+        AAI Desk — Project Tracker · Backed by Cloudflare D1 &amp; R2
       </footer>
     </div>
   );

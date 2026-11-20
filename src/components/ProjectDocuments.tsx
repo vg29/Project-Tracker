@@ -7,7 +7,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { CoreDocSlotKey } from '../services/localDb';
+import { CoreDocSlotKey } from '../services/d1Api';
 import { getProjectFileHref, MAX_R2_FILE_BYTES } from '../services/r2Storage';
 import { Project, ProjectFile } from '../types';
 import { countCoreDocuments } from '../utils/documents';
