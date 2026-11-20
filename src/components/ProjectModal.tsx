@@ -1,16 +1,19 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { FileText, Trash2, Upload, X } from 'lucide-react';
-import { Project, PurchaseOrderDoc } from '../types';
-import { getTodayISO } from '../utils/date';
+import {
+  deleteFileFromR2,
+  getProjectFileHref,
+  MAX_R2_FILE_BYTES,
+} from '../services/r2Storage';
+import { Project, ProjectFile, PurchaseOrderDoc } from '../types';
 
 interface ProjectModalProps {
   open: boolean;
   project: Project | null;
   onClose: () => void;
+  onUploadPurchaseOrder: (file: File, existingProjectId?: string) => Promise<ProjectFile>;
   onSave: (data: Omit<Project, 'id' | 'createdAt'>, existingId?: string) => void;
 }
-
-const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,6 +27,7 @@ export function ProjectModal({
   open,
   project,
   onClose,
+  onUploadPurchaseOrder,
   onSave,
 }: ProjectModalProps) {
   const [name, setName] = useState('');
@@ -32,12 +36,16 @@ export function ProjectModal({
   const [purchaseOrder, setPurchaseOrder] = useState<PurchaseOrderDoc | undefined>(
     undefined
   );
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [fileError, setFileError] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sessionUploadedKeysRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setFileError('');
+    setUploadingFile(false);
+    sessionUploadedKeysRef.current = [];
     if (project) {
       setName(project.name);
       setCode(project.code);
@@ -58,47 +66,73 @@ export function ProjectModal({
     }
   }, [open, project]);
 
+  const handleCancel = () => {
+    const originalKey = project?.purchaseOrder?.r2Key;
+    const keysToDiscard = sessionUploadedKeysRef.current.filter(
+      (k) => k !== originalKey
+    );
+    for (const key of keysToDiscard) {
+      void deleteFileFromR2(key);
+    }
+    sessionUploadedKeysRef.current = [];
+    onClose();
+  };
+
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleCancel();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
+  });
 
   if (!open) return null;
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > MAX_FILE_BYTES) {
-      setFileError('File exceeds 2 MB limit. Please upload a smaller document.');
+    if (file.size > MAX_R2_FILE_BYTES) {
+      setFileError('File exceeds 25 MB limit. Please upload a smaller document.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     setFileError('');
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setPurchaseOrder({
-          fileName: file.name,
-          fileType: file.type || 'application/octet-stream',
-          fileSize: file.size,
-          dataUrl: reader.result,
-          uploadedAt: getTodayISO(),
-        });
+    setUploadingFile(true);
+    try {
+      const uploaded = await onUploadPurchaseOrder(file, project?.id);
+      if (uploaded.r2Key) {
+        sessionUploadedKeysRef.current.push(uploaded.r2Key);
       }
-    };
-    reader.onerror = () => {
-      setFileError('Could not read the selected file. Please try again.');
-    };
-    reader.readAsDataURL(file);
+      if (
+        purchaseOrder?.r2Key &&
+        purchaseOrder.r2Key !== project?.purchaseOrder?.r2Key &&
+        purchaseOrder.r2Key !== uploaded.r2Key
+      ) {
+        void deleteFileFromR2(purchaseOrder.r2Key);
+      }
+      setPurchaseOrder(uploaded);
+    } catch (err) {
+      setFileError(
+        err instanceof Error
+          ? err.message
+          : 'Could not upload Purchase order to Cloudflare R2.'
+      );
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleRemoveFile = () => {
+    if (
+      purchaseOrder?.r2Key &&
+      purchaseOrder.r2Key !== project?.purchaseOrder?.r2Key
+    ) {
+      void deleteFileFromR2(purchaseOrder.r2Key);
+    }
     setPurchaseOrder(undefined);
     setFileError('');
     if (fileInputRef.current) {
@@ -108,7 +142,8 @@ export function ProjectModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || uploadingFile) return;
+    sessionUploadedKeysRef.current = [];
     onSave(
       {
         name: name.trim(),
@@ -138,7 +173,7 @@ export function ProjectModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCancel}
             aria-label="Close dialog"
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
           >
@@ -217,7 +252,9 @@ export function ProjectModal({
               id="project-purchase-order"
               type="file"
               accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-              onChange={handleFileChange}
+              onChange={(e) => {
+                void handleFileChange(e);
+              }}
               className="sr-only"
             />
 
@@ -230,7 +267,7 @@ export function ProjectModal({
                   />
                   <div className="min-w-0">
                     <a
-                      href={purchaseOrder.dataUrl}
+                      href={getProjectFileHref(purchaseOrder)}
                       download={purchaseOrder.fileName}
                       className="block truncate text-xs font-medium text-slate-900 hover:text-blue-900 hover:underline"
                     >
@@ -245,17 +282,19 @@ export function ProjectModal({
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
+                    disabled={uploadingFile}
                     onClick={() => fileInputRef.current?.click()}
-                    className="rounded px-2 py-1 text-xs font-medium text-blue-900 hover:bg-slate-200/70 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
+                    className="rounded px-2 py-1 text-xs font-medium text-blue-900 hover:bg-slate-200/70 disabled:opacity-60 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
                   >
-                    Replace
+                    {uploadingFile ? 'Uploading...' : 'Replace'}
                   </button>
                   <button
                     type="button"
+                    disabled={uploadingFile}
                     onClick={handleRemoveFile}
                     aria-label="Remove Purchase order document"
                     title="Remove document"
-                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
+                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -264,11 +303,16 @@ export function ProjectModal({
             ) : (
               <button
                 type="button"
+                disabled={uploadingFile}
                 onClick={() => fileInputRef.current?.click()}
-                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-xs font-medium text-slate-700 transition-colors hover:border-blue-800 hover:bg-slate-50 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
+                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50/70 px-4 py-3 text-xs font-medium text-slate-700 transition-colors hover:border-blue-800 hover:bg-slate-50 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
               >
                 <Upload className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
-                <span>Upload Purchase order (PDF, DOC, JPG, PNG · max 2 MB)</span>
+                <span>
+                  {uploadingFile
+                    ? 'Uploading Purchase order...'
+                    : 'Upload Purchase order (PDF, DOC, JPG, PNG · max 25 MB)'}
+                </span>
               </button>
             )}
 
@@ -282,14 +326,15 @@ export function ProjectModal({
           <div className="flex items-center justify-end gap-2.5 border-t border-slate-200 pt-4">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCancel}
               className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="rounded-md bg-blue-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-800 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2"
+              disabled={uploadingFile}
+              className="rounded-md bg-blue-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-800 focus-visible:ring-offset-2"
             >
               {project ? 'Save Project' : 'Create Project'}
             </button>

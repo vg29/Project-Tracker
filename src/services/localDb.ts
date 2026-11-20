@@ -13,6 +13,7 @@ import {
   Task,
 } from '../types';
 import { getTodayISO } from '../utils/date';
+import { deleteFileFromR2, deleteFilesFromR2 } from './r2Storage';
 
 const DB_NAME = 'aai_desk_local_db';
 const DB_VERSION = 1;
@@ -519,6 +520,7 @@ export async function updateLocalProject(
   data: { name: string; code: string; division: string; purchaseOrder?: ProjectFile }
 ): Promise<void> {
   const db = await openDatabase();
+  let obsoleteR2Key: string | undefined;
   try {
     const tx = db.transaction(['projects', 'documents'], 'readwrite');
     const projectStore = tx.objectStore('projects');
@@ -537,6 +539,17 @@ export async function updateLocalProject(
 
     const docsStore = tx.objectStore('documents');
     const poDocId = `${projectId}::purchaseOrder`;
+    const existingPoDoc = (await reqPromise(
+      docsStore.get(poDocId)
+    )) as StoredDocumentRecord | undefined;
+
+    if (
+      existingPoDoc?.file.r2Key &&
+      existingPoDoc.file.r2Key !== data.purchaseOrder?.r2Key
+    ) {
+      obsoleteR2Key = existingPoDoc.file.r2Key;
+    }
+
     if (data.purchaseOrder) {
       docsStore.put({
         id: poDocId,
@@ -554,6 +567,10 @@ export async function updateLocalProject(
   } finally {
     db.close();
   }
+
+  if (obsoleteR2Key) {
+    await deleteFileFromR2(obsoleteR2Key);
+  }
 }
 
 export async function deleteLocalProject(
@@ -561,6 +578,7 @@ export async function deleteLocalProject(
   projectId: string
 ): Promise<void> {
   const db = await openDatabase();
+  const r2KeysToDelete: string[] = [];
   try {
     const tx = db.transaction(['projects', 'documents', 'tasks'], 'readwrite');
     const docRows = (await reqPromise(
@@ -570,6 +588,9 @@ export async function deleteLocalProject(
     const docsStore = tx.objectStore('documents');
     for (const d of docRows) {
       if (d.userId === userId) {
+        if (d.file.r2Key) {
+          r2KeysToDelete.push(d.file.r2Key);
+        }
         docsStore.delete(d.id);
       }
     }
@@ -590,6 +611,10 @@ export async function deleteLocalProject(
   } finally {
     db.close();
   }
+
+  if (r2KeysToDelete.length > 0) {
+    await deleteFilesFromR2(r2KeysToDelete);
+  }
 }
 
 export async function upsertLocalCoreDoc(
@@ -600,10 +625,21 @@ export async function upsertLocalCoreDoc(
   file: ProjectFile
 ): Promise<void> {
   const db = await openDatabase();
+  let obsoleteR2Key: string | undefined;
   try {
+    const docId = `${projectId}::${slotKey}`;
     const tx = db.transaction('documents', 'readwrite');
-    tx.objectStore('documents').put({
-      id: `${projectId}::${slotKey}`,
+    const store = tx.objectStore('documents');
+    const existing = (await reqPromise(
+      store.get(docId)
+    )) as StoredDocumentRecord | undefined;
+
+    if (existing?.file.r2Key && existing.file.r2Key !== file.r2Key) {
+      obsoleteR2Key = existing.file.r2Key;
+    }
+
+    store.put({
+      id: docId,
       userId,
       projectId,
       slotKey,
@@ -614,6 +650,10 @@ export async function upsertLocalCoreDoc(
   } finally {
     db.close();
   }
+
+  if (obsoleteR2Key) {
+    await deleteFileFromR2(obsoleteR2Key);
+  }
 }
 
 export async function removeLocalCoreDoc(
@@ -621,12 +661,27 @@ export async function removeLocalCoreDoc(
   slotKey: CoreDocSlotKey
 ): Promise<void> {
   const db = await openDatabase();
+  let obsoleteR2Key: string | undefined;
   try {
+    const docId = `${projectId}::${slotKey}`;
     const tx = db.transaction('documents', 'readwrite');
-    tx.objectStore('documents').delete(`${projectId}::${slotKey}`);
+    const store = tx.objectStore('documents');
+    const existing = (await reqPromise(
+      store.get(docId)
+    )) as StoredDocumentRecord | undefined;
+
+    if (existing?.file.r2Key) {
+      obsoleteR2Key = existing.file.r2Key;
+    }
+
+    store.delete(docId);
     await txDone(tx);
   } finally {
     db.close();
+  }
+
+  if (obsoleteR2Key) {
+    await deleteFileFromR2(obsoleteR2Key);
   }
 }
 
@@ -655,12 +710,26 @@ export async function addLocalCustomDoc(
 
 export async function removeLocalDocById(docId: string): Promise<void> {
   const db = await openDatabase();
+  let obsoleteR2Key: string | undefined;
   try {
     const tx = db.transaction('documents', 'readwrite');
-    tx.objectStore('documents').delete(docId);
+    const store = tx.objectStore('documents');
+    const existing = (await reqPromise(
+      store.get(docId)
+    )) as StoredDocumentRecord | undefined;
+
+    if (existing?.file.r2Key) {
+      obsoleteR2Key = existing.file.r2Key;
+    }
+
+    store.delete(docId);
     await txDone(tx);
   } finally {
     db.close();
+  }
+
+  if (obsoleteR2Key) {
+    await deleteFileFromR2(obsoleteR2Key);
   }
 }
 
@@ -809,6 +878,7 @@ export async function deleteLocalTask(
 
 export async function resetLocalWorkspace(userId: string): Promise<void> {
   const db = await openDatabase();
+  const r2KeysToDelete: string[] = [];
   try {
     const tx = db.transaction(
       ['users', 'projects', 'documents', 'tasks'],
@@ -826,6 +896,9 @@ export async function resetLocalWorkspace(userId: string): Promise<void> {
       tx.objectStore('documents').index('userId').getAll(userId)
     )) as StoredDocumentRecord[];
     for (const d of docRows) {
+      if (d.file.r2Key) {
+        r2KeysToDelete.push(d.file.r2Key);
+      }
       tx.objectStore('documents').delete(d.id);
     }
 
@@ -862,5 +935,9 @@ export async function resetLocalWorkspace(userId: string): Promise<void> {
     await txDone(tx);
   } finally {
     db.close();
+  }
+
+  if (r2KeysToDelete.length > 0) {
+    await deleteFilesFromR2(r2KeysToDelete);
   }
 }

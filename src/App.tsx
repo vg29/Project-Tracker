@@ -30,10 +30,10 @@ import {
   updateLocalTaskStatus,
   upsertLocalCoreDoc,
 } from './services/localDb';
+import { uploadFileToR2 } from './services/r2Storage';
 import {
   ExecutiveProfile,
   Project,
-  ProjectFile,
   Task,
   TaskDisplayMode,
   TaskStatus,
@@ -303,10 +303,15 @@ export default function App() {
     projectId: string,
     slotKey: CoreDocSlotKey,
     label: string,
-    file: ProjectFile
+    file: File
   ) => {
     if (!user) return;
-    await upsertLocalCoreDoc(user.id, projectId, slotKey, label, file);
+    const uploaded = await uploadFileToR2(file, {
+      userId: user.id,
+      projectId,
+      slotKey,
+    });
+    await upsertLocalCoreDoc(user.id, projectId, slotKey, label, uploaded);
     await refreshWorkspace(user.id);
   };
 
@@ -322,10 +327,15 @@ export default function App() {
   const handleAddCustomDoc = async (
     projectId: string,
     label: string,
-    file: ProjectFile
+    file: File
   ) => {
     if (!user) return;
-    await addLocalCustomDoc(user.id, projectId, label, file);
+    const uploaded = await uploadFileToR2(file, {
+      userId: user.id,
+      projectId,
+      slotKey: 'custom',
+    });
+    await addLocalCustomDoc(user.id, projectId, label, uploaded);
     await refreshWorkspace(user.id);
   };
 
@@ -776,6 +786,16 @@ export default function App() {
         open={projectModalOpen}
         project={editingProject}
         onClose={() => setProjectModalOpen(false)}
+        onUploadPurchaseOrder={(file, existingProjectId) => {
+          if (!user) {
+            return Promise.reject(new Error('Please sign in to upload files.'));
+          }
+          return uploadFileToR2(file, {
+            userId: user.id,
+            projectId: existingProjectId || 'new-project',
+            slotKey: 'purchaseOrder',
+          });
+        }}
         onSave={handleSaveProject}
       />
 

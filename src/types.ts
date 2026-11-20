@@ -10,8 +10,11 @@ export interface ProjectFile {
   fileName: string;
   fileType: string;
   fileSize: number;
-  dataUrl: string;
   uploadedAt: string;
+  storageProvider?: 'r2' | 'local';
+  r2Key?: string;
+  url?: string;
+  dataUrl?: string;
 }
 
 export type PurchaseOrderDoc = ProjectFile;
